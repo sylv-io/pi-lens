@@ -13,12 +13,6 @@ import {
 	setRenderCallback,
 } from "./clients/widget-state.js";
 import { getDiagnosticTracker } from "./clients/diagnostic-tracker.js";
-import {
-	getCascadeSessionStats,
-	getDispatchSlopScoreLine,
-	getLatencyReports,
-	resetDispatchBaselines,
-} from "./clients/dispatch/integration.js";
 import { detectFileKind } from "./clients/file-kinds.js";
 import {
 	getFormatService,
@@ -47,19 +41,13 @@ import {
 	getTouchedLinesForGuard,
 	tryCorrectIndentationMismatch,
 } from "./clients/read-guard-tool-lines.js";
-import { handleAgentEnd } from "./clients/runtime-agent-end.js";
 import {
 	consumeSessionStartGuidance,
 	consumeTestFindings,
 	consumeTurnEndFindings,
 } from "./clients/runtime-context.js";
 import { RuntimeCoordinator } from "./clients/runtime-coordinator.js";
-import { handleSessionStart } from "./clients/runtime-session.js";
-import {
-	clearLastAnalyzedStateCache,
-	handleToolResult,
-} from "./clients/runtime-tool-result.js";
-import { cancelLSPIdleReset, handleTurnEnd } from "./clients/runtime-turn.js";
+import { cancelLSPIdleReset } from "./clients/runtime-turn.js";
 import { isExternalOrVendorFile } from "./clients/path-utils.js";
 import { safeSpawnAsync } from "./clients/safe-spawn.js";
 import {
@@ -71,7 +59,6 @@ import {
 	savePiLensSemgrepConfig,
 } from "./clients/semgrep-config.js";
 import { TreeSitterClient } from "./clients/tree-sitter-client.js";
-import { handleBooboo } from "./commands/booboo.js";
 import { initI18n, t } from "./i18n.js";
 import { createAstGrepReplaceTool } from "./tools/ast-grep-replace.js";
 import { createAstGrepSearchTool } from "./tools/ast-grep-search.js";
@@ -602,6 +589,7 @@ export default function (pi: ExtensionAPI) {
 				typeCoverageClient,
 				depChecker,
 			} = await loadBootstrapClients();
+			const { handleBooboo } = await import("./commands/booboo.js");
 			return handleBooboo(
 				args,
 				ctx,
@@ -671,6 +659,7 @@ export default function (pi: ExtensionAPI) {
 				0,
 			);
 
+			const { getLatencyReports } = await import("./clients/dispatch/integration.js");
 			const reports = getLatencyReports();
 			const last = reports.length > 0 ? reports[reports.length - 1] : undefined;
 			const diagStats = getDiagnosticTracker().getStats();
@@ -704,6 +693,7 @@ export default function (pi: ExtensionAPI) {
 					count: crashEntries.length,
 				}),
 			];
+			const { getDispatchSlopScoreLine } = await import("./clients/dispatch/integration.js");
 			const slopScoreLine = getDispatchSlopScoreLine();
 
 			if (crashEntries.length > 0) {
@@ -786,6 +776,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// Cascade summary
+			const { getCascadeSessionStats } = await import("./clients/dispatch/integration.js");
 			const cascadeStats = getCascadeSessionStats();
 			if (cascadeStats.runs > 0) {
 				lines.push(
@@ -977,6 +968,8 @@ export default function (pi: ExtensionAPI) {
 				goClient,
 				rustClient,
 			} = await loadBootstrapClients();
+			const { handleSessionStart } = await import("./clients/runtime-session.js");
+			const { resetDispatchBaselines } = await import("./clients/dispatch/integration.js");
 			await handleSessionStart({
 				ctxCwd: ctx.cwd,
 				getFlag: (name: string) => getLensFlag(name),
@@ -1530,6 +1523,7 @@ export default function (pi: ExtensionAPI) {
 		updateRuntimeIdentityFromEvent(event);
 		const { biomeClient, ruffClient, metricsClient, agentBehaviorClient } =
 			await loadBootstrapClients();
+		const { handleToolResult } = await import("./clients/runtime-tool-result.js");
 		return handleToolResult({
 			event: event as any,
 			getFlag: (name: string) => getLensFlag(name),
@@ -1550,14 +1544,16 @@ export default function (pi: ExtensionAPI) {
 
 	// --- Turn end: batch jscpd/madge on collected files, then clear state ---
 	// Clear cascade snapshot at start of each new turn so stale data never leaks
-	pi.on("turn_start", (_event: any) => {
+	pi.on("turn_start", async (_event: any) => {
 		runtime.beginTurn();
+		const { clearLastAnalyzedStateCache } = await import("./clients/runtime-tool-result.js");
 		clearLastAnalyzedStateCache();
 	});
 
 	pi.on("agent_end", async (_event, ctx) => {
 		if (!lensEnabled) return;
 		try {
+			const { handleAgentEnd } = await import("./clients/runtime-agent-end.js");
 			await handleAgentEnd({
 				ctxCwd: ctx.cwd,
 				getFlag: (name: string) => getLensFlag(name),
@@ -1580,6 +1576,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const { knipClient, depChecker, testRunnerClient } =
 				await loadBootstrapClients();
+			const { handleTurnEnd } = await import("./clients/runtime-turn.js");
 			await handleTurnEnd({
 				ctxCwd: ctx.cwd,
 				getFlag: (name: string) => getLensFlag(name),
